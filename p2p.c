@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <pthread.h> 
+#include <time.h>
 
 #define MY_POEM_LINE "TEST 1"
 #define MY_POEM_NUM 2
@@ -26,12 +27,20 @@
 char myLineStr[256] = MY_POEM_LINE;
 int myLineNumber = MY_POEM_NUM;
 static pthread_mutex_t cs_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+FILE *logFile;
+
+
 
 //critical data
 int	poemLineNumbers[30];
 int poemLineCounter = 0;
 char* poemLine[30];
 
+
+
+void logMessage(char const * mg);
+void bPoemSort();
 
 
 /******************************/
@@ -56,13 +65,16 @@ int connectionToServer(int const socket, char const *ip){
 		return -1;
 	}
 	
+	char str[128];
+  sprintf(str,"CLIENT - Successfully connection to server: %s", ip);
+	logMessage(str);
 	return 0;
 }
 
 int createConnectionSocket (){
 	int sock = 0;
 	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-		  printf("\n Socket creation error \n");
+		  logMessage("ERROR CLIENT - creating connection socket");
 		  return -1;
 	}
 	return sock;
@@ -80,24 +92,24 @@ int createServerSocket(struct sockaddr_in *address){
 	int opt = 1;
 
   if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0){
-	  printf("socket failed");
+	  logMessage("ERROR SERVER - creating server socket: socket");
 	  return -1;
   }
   
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))){
-		printf("setsockopt");
+		logMessage("ERROR SERVER - creating server socket: setsockopt");
 		close(server_fd);
 		return -1;
   }
   
   if (bind(server_fd, (struct sockaddr *)address,sizeof(*address))<0){
-    printf("bind failed");
+    logMessage("ERROR SERVER - creating server socket: bind");
     close(server_fd);
     return -1;
   }
   
   if (listen(server_fd, 10) < 0){
-    printf("listen failed");
+    logMessage("ERROR SERVER - creating server socket: listen");
     close(server_fd);
     return -1;
   }
@@ -111,13 +123,30 @@ void setServerAddress(struct sockaddr_in *address){
     address->sin_port = htons( PORT );
 }
 
+void logClientIp(int new_socket){
+
+  struct sockaddr_in addr;
+  socklen_t addr_size = sizeof(struct sockaddr_in);
+  int res = getpeername(new_socket, (struct sockaddr *)&addr, &addr_size);
+  char *clientip = (char*)malloc(20);
+  inet_ntop(AF_INET, &addr.sin_addr, clientip, 20);
+  
+	char str[128];
+ 	sprintf(str,"SERVER - Successfully connection with client (%d): %s",new_socket, clientip);
+	logMessage(str);
+	free(clientip);
+}
+
 int waitingForClient (int const socket,struct sockaddr_in *address){
 	int new_socket;
 	int addrlen = sizeof(*address);
 	
 	if ((new_socket = accept(socket, (struct sockaddr *)&address,(socklen_t*)&addrlen))<0){
+			logMessage("ERROR SERVER - creating server socket: listen");
 		  return -1;
 	}
+	
+	logClientIp(new_socket);
 	return new_socket;
 }
 
@@ -207,6 +236,7 @@ int getStringArr(int const socket, char **readString){
 		readedLen += err;
 	}
 	
+	(*readString)[size]='\0';
 	return 0;
 }
 
@@ -257,7 +287,8 @@ void * ClientThreadConnect(void * ipNum_v){
 	int error;
 	char ip[20];
 	char *thLine;
-	
+	char str[128];
+
 	//build address IP
 	snprintf(ip,sizeof(ip),ADDRESS_MASK,currentIp);
 	
@@ -271,6 +302,8 @@ void * ClientThreadConnect(void * ipNum_v){
 		
 		//get line poem number from server
 		poemLineNumber = getNumber(socket);
+		sprintf(str,"CLIENT -%s- Get line number from server: %d",ip, poemLineNumber);
+		logMessage(str);
 		
 		//poemLineNumber++; //line for debugging
 		
@@ -282,7 +315,10 @@ void * ClientThreadConnect(void * ipNum_v){
 			
 			//get from server poem line
 			getStringArr(socket,&(thLine));
-
+			
+			sprintf(str,"CLIENT -%s- Get new line: %s",ip,thLine);
+			logMessage(str);
+			
 			//CRITICAL SECTION START
 			pthread_mutex_lock(&cs_mutex);
 			
@@ -290,6 +326,8 @@ void * ClientThreadConnect(void * ipNum_v){
 			poemLine[poemLineCounter] = thLine;
 			poemLineNumbers[poemLineCounter] = poemLineNumber;
 			poemLineCounter++;
+			
+			bPoemSort();
 			
 			if( poemLineCounter >= 30)
 				poemLineCounter =0;
@@ -301,6 +339,9 @@ void * ClientThreadConnect(void * ipNum_v){
 		}else{
 			//send to server "no" message
 			sendStatement(socket,0);
+			
+			sprintf(str,"CLIENT -%s- Duplicate line number",ip);
+			logMessage(str);
 		}
 	}
 	
@@ -349,20 +390,25 @@ void ClientThreadScan(){
 void * ServerSendLine(void * socket_v){
 	int socket = *(int*)socket_v;
 	int statement;
+	char str[128];
 	
 	//send my poem line number
 	sendNumber(socket,myLineNumber);
-	
+	sprintf(str,"SERVER - Successfully sent line number to client (%d)",socket);
 	//check client response
 	readStatement(socket,&statement);
 	
 	//if client sent - "yes" - send poem line
 	if( statement == 1){
 		sendStringArr(socket,myLineStr,strlen(myLineStr));
+		sprintf(str,"SERVER - Successfully sent poem line to client (%d)",socket);
+		logMessage(str);
 	}
 	
 	//close socket and tread
 	close(socket);
+	sprintf(str,"SERVER - Successfully closed connection to client (%d)",socket);
+	logMessage(str);
 	pthread_exit(NULL);
 }
 
@@ -413,13 +459,14 @@ void* ServerThread(){
 void showPoem(){
 	printf("\033[H\033[J"); //clear console
 	
-	printf("--START--\n");
+	printf("--POEM--\n\n\n");
 	for(int k =0;k<30;k++){
 		if(poemLineNumbers[k] == -1)
 			break;
 		printf("%d: %s \n",poemLineNumbers[k],poemLine[k]);
 	}
-
+	printf("\n\n--END--\n\n\n");
+	
 }
 
 //initialize poem array's
@@ -431,10 +478,54 @@ void initMyPoemPart(){
 	poemLine[poemLineCounter++] = myLineStr;
 }
 
+
+void bPoemSort(){
+	int tempNumber;
+	char* tempPointer;
+	int k,endFlag;
+	
+	do{
+		endFlag =0;
+		k = poemLineCounter-1;
+		do{
+			k--;
+			if(poemLineNumbers[k+1] < poemLineNumbers[k]){
+				tempNumber = poemLineNumbers[k];				
+				poemLineNumbers[k] = poemLineNumbers[k+1];
+				poemLineNumbers[k+1] = tempNumber;
+				
+				tempPointer = poemLine[k];
+				poemLine[k] = poemLine[k+1];
+				poemLine[k+1] = tempPointer;
+				
+				endFlag = 1;
+			}
+		}while(k !=0);
+	}while(endFlag !=0);
+}
+
+
+void logMessage(char const * mg){
+	pthread_mutex_lock(&log_mutex);
+	
+	logFile = fopen("logs.txt", "a");
+	
+	time_t t = time(NULL);
+	struct tm tm = *localtime(&t);
+
+	fprintf(logFile,"--EventTime: %d-%d-%d %d:%d:%d\t", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+	fprintf(logFile, "%s\n",mg);
+	
+	fclose(logFile);
+	
+	pthread_mutex_unlock(&log_mutex);
+}
+
 //main function
 int main (){
-	
 	initMyPoemPart();
+	
+	logMessage("Start Working");
 
 	//two threads from algorithm
 	pthread_t thread[2];
@@ -442,12 +533,15 @@ int main (){
 	pthread_create(&thread[0], NULL, (void *)ClientThreadScan, NULL);
 	pthread_create(&thread[1], NULL, (void *)ServerThread, NULL);
 	
+	char ch;
 	//main loop for print poem
 	while(1){
 		showPoem();
 		sleep(1);
 	}
 	
+	
+	logMessage("End Working");
 	pthread_exit(NULL);
 }
 
