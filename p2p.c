@@ -8,7 +8,7 @@
 #include <pthread.h> 
 #include <time.h>
 
-#define MY_POEM_LINE "TEST 1"
+#define MY_POEM_LINE "Test 1"
 #define MY_POEM_NUM 2
 
 #define PORT 8080
@@ -162,6 +162,7 @@ int sendNumber(int const socket, int nubmer){
 	int32_t numberToSend = (int32_t)nubmer;
 	int res = send(socket , &numberToSend , sizeof(int32_t) , 0 );
 	if(res == -1 || res != sizeof(int32_t)){
+		logMessage("ERROR - sending number");
 		return -1;
 	}
 	return 0;
@@ -178,6 +179,7 @@ int sendStringArr (int const socket, char const* stringToSend, int size){
 	while (sentCount < size ){
 		res = send(socket , stringToSend+sentCount , size-sentCount , 0);
 		if(res == -1){
+			logMessage("ERROR - sending string");
 			return -1;
 		}
 		sentCount += res;
@@ -196,6 +198,7 @@ int sendStatement(int const socket, int flag){
 		res = send(socket , respNo , 3 , 0);
 	
 	if(res == -1 || res != 3){
+		logMessage("ERROR - sending short statement");
 		return -1;
 	}
 	
@@ -212,6 +215,7 @@ int sendStatement(int const socket, int flag){
 int getNumber (int const socket){
 	int32_t numberToRead;
 	if (read(socket ,&numberToRead, sizeof(int32_t)) == -1){
+		logMessage("ERROR - get number");
 		return -1;
 	}
 	return (int)numberToRead;
@@ -231,6 +235,7 @@ int getStringArr(int const socket, char **readString){
 	while ( readedLen < size){
 		err = read(socket , (*readString)+readedLen,size-readedLen );
 		if(err == -1){
+			logMessage("ERROR - get string");
 			return -1;
 		}
 		readedLen += err;
@@ -242,8 +247,10 @@ int getStringArr(int const socket, char **readString){
 
 int readStatement(int const socket, int* flag){
 	char buff[3];
-	if(read(socket,buff,3) != 3)
+	if(read(socket,buff,3) != 3){
+		logMessage("ERROR - get statement - invalid length");
 		return -1;
+	}
 	
 	if(buff[0] == 'y' || buff[0] == 'Y' )
 		(*flag) =1;
