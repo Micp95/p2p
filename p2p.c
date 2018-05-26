@@ -8,11 +8,11 @@
 #include <pthread.h> 
 #include <time.h>
 
-#define MY_POEM_LINE "Test 1"
-#define MY_POEM_NUM 2
+#define MY_POEM_LINE "Test 0"
+#define MY_POEM_NUM 1
 
 #define PORT 8080
-#define ADDRESS_MASK "172.17.0.%d"
+#define ADDRESS_MASK "192.168.0.%d"
 
 #define NUM_THREADS 100
 
@@ -27,7 +27,7 @@
 char myLineStr[256] = MY_POEM_LINE;
 int myLineNumber = MY_POEM_NUM;
 static pthread_mutex_t cs_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t log_mutex;
 FILE *logFile;
 
 
@@ -309,6 +309,11 @@ void * ClientThreadConnect(void * ipNum_v){
 		
 		//get line poem number from server
 		poemLineNumber = getNumber(socket);
+		if(poemLineNumber == -1){
+			close(socket);
+			pthread_exit(NULL);
+		}
+		
 		sprintf(str,"CLIENT -%s- Get line number from server: %d",ip, poemLineNumber);
 		logMessage(str);
 		
@@ -530,6 +535,8 @@ void logMessage(char const * mg){
 
 //main function
 int main (){
+	pthread_mutex_init(&log_mutex, NULL);
+
 	initMyPoemPart();
 	
 	logMessage("Start Working");
